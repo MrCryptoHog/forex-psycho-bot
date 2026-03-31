@@ -15,7 +15,7 @@ from aiogram.types import CallbackQuery, Message
 
 from bot.data.questions import QUESTION_BANK
 from bot.data.scoring import get_result
-from bot.keyboards.quiz_kb import build_answer_keyboard
+from bot.keyboards.quiz_kb import build_answer_keyboard, format_options
 from bot.states.quiz import QuizStates
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,8 @@ async def _send_question(target: Message | CallbackQuery, state: FSMContext) -> 
             f"{'─' * 28}\n\n"
             f"{result_text}\n\n"
             f"{'─' * 28}\n"
-            f"<i>Type /psychology to retake anytime. Every quiz is different!</i> 🔄"
+            f"<i>Type /psychology to retake anytime. Every quiz is different!</i> 🔄\n\n"
+            f"☕ Discuss your results in @TradingBrew"
         )
         if isinstance(target, CallbackQuery):
             await target.message.edit_text(final_msg, parse_mode="HTML")
@@ -65,25 +66,24 @@ async def _send_question(target: Message | CallbackQuery, state: FSMContext) -> 
     question_num = index + 1
     progress = _progress_bar(question_num)
 
+    options_text = format_options(q["options"])
     text = (
-        f"*Question {question_num} of {QUIZ_LENGTH}*\n"
+        f"<b>Question {question_num} of {QUIZ_LENGTH}</b>\n"
         f"{progress}\n\n"
-        f"_{_escape_md(q['text'])}_"
+        f"<i>{_escape_html(q['text'])}</i>\n\n"
+        f"{options_text}"
     )
-    kb = build_answer_keyboard(q["options"])
+    kb = build_answer_keyboard()
 
     if isinstance(target, CallbackQuery):
-        await target.message.edit_text(text, reply_markup=kb, parse_mode="MarkdownV2")
+        await target.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     else:
-        await target.answer(text, reply_markup=kb, parse_mode="MarkdownV2")
+        await target.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
-def _escape_md(text: str) -> str:
-    """Escape MarkdownV2 special characters."""
-    special = r"_*[]()~`>#+-=|{}.!\\"
-    for ch in special:
-        text = text.replace(ch, f"\\{ch}")
-    return text
+def _escape_html(text: str) -> str:
+    """Escape HTML special characters for Telegram."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ── /psychology — Start the quiz ──────────────────────────────────────────
@@ -93,18 +93,29 @@ async def cmd_psychology(message: Message, state: FSMContext) -> None:
     """Start a fresh 10-question psychology quiz."""
     # Pick 10 random questions from the bank
     selected = random.sample(QUESTION_BANK, k=QUIZ_LENGTH)
-    random.shuffle(selected)
+
+    # Shuffle the OPTION ORDER within each question so the correct answer
+    # lands in a random position every time — prevents pattern gaming
+    shuffled_questions = []
+    for q in selected:
+        indices = list(range(4))
+        random.shuffle(indices)
+        shuffled_questions.append({
+            "text": q["text"],
+            "options": [q["options"][i] for i in indices],
+            "scores": [q["scores"][i] for i in indices],
+        })
 
     await state.set_state(QuizStates.answering)
     await state.update_data(
-        questions=selected,
+        questions=shuffled_questions,
         current_index=0,
         score=0,
     )
 
     welcome = (
         f"{'─' * 28}\n"
-        f"🧠 *FOREX MINDSET CHECK* 🧠\n"
+        f"🧠 *TB's PSYCHOLOGY CHECK* 🧠\n"
         f"{'─' * 28}\n\n"
         f"Alright trader, let's see where your head's at\\. 💭\n\n"
         f"📋 *10 questions* about your trading psychology\n"
